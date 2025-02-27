@@ -303,7 +303,7 @@ class EphMessenger:
         )
         token = credentials['token']
 
-        mclient = mqtt.Client(self.client_id)
+        mclient = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, self.client_id)
         mclient.tls_set()
         self.client = mclient
 
@@ -633,47 +633,45 @@ class EphEmber:
         self._home_details = home_details['data']
 
         return home_details["data"]
-    # ["homes"]
-
-    def get_home(self, gateway_id=None):
+    
+     # ["homes"]
+    def get_homes(self):
         """
         Get the data about a home (API call: homesVT/zoneProgram).
-        If no gateway_id is passed, the first gateway found is used.
         """
-        if gateway_id is None:
-            if not self._homes:
-                self._homes = self.list_homes()
-            gateway_id = self._get_first_gateway_id()
+        if not self._homes:
+            self._homes = self.list_homes()
+        homes = []
 
-        response = self._http(
-            "homesVT/zoneProgram", send_token=True,
-            data={"gateWayId": gateway_id}
-        )
+        for gateway in self._homes:
+            gateway_id = gateway["gatewayid"]
 
-        home = response.json()
+            response = self._http(
+                "homesVT/zoneProgram", send_token=True, data={"gateWayId": gateway_id}
+            )
 
-        status = home.get('status', 1)
-        if status != 0:
-            raise RuntimeError(
-                "Error getting zones from home: {}".format(status))
+            home = response.json()
 
-        if "data" not in home:
-            raise RuntimeError(
-                "Error getting zones from home: no data found")
-        if "timestamp" not in home:
-            raise RuntimeError(
-                "Error getting zones from home: no timestamp found")
+            status = home.get("status", 1)
+            if status != 0:
+                raise RuntimeError("Error getting zones from home: {}".format(status))
 
-        for zone in home["data"]:
-            zone["timestamp"] = home["timestamp"]
+            if "data" not in home:
+                raise RuntimeError("Error getting zones from home: no data found")
+            if "timestamp" not in home:
+                raise RuntimeError("Error getting zones from home: no timestamp found")
 
-        return home["data"]
+            for zone in home["data"]:
+                zone["timestamp"] = home["timestamp"]
+            homes.append(home)
+
+        return homes
 
     def get_zones(self):
         """
         Get all zones
         """
-        home_data = self.get_home()
+        home_data = self.get_homes()
         if not home_data:
             return []
 
