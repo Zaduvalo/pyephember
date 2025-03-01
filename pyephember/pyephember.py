@@ -9,22 +9,33 @@ import json
 import time
 import collections
 
-from enum import Enum
+from enum import StrEnum, Enum
 
 import requests
 import paho.mqtt.client as mqtt
 
-
-class ZoneMode(Enum):
+class ZoneMode(StrEnum):
     """
     Modes that a zone can be set too
     """
     # pylint: disable=invalid-name
-    AUTO = 0
-    ALL_DAY = 1
-    ON = 2
-    OFF = 3
+    AUTO = 'auto'
+    ALL_DAY = 'all day'
+    ON = 'manual'
+    OFF = 'off'
 
+def GetModePointIndexByDeviceType(deviceTypeId):
+    match deviceTypeId:
+        case 2 | 4:
+            return 7
+        case 514 | 773:
+            return 11
+
+class PointTest(Enum):
+    ADVANCE_ACTIVE = 4
+    CURRENT_TEMP = 5
+    TARGET_TEMP = 6
+    MODE = GetModePointIndexByDeviceType
 
 class PointIndex(Enum):
     """
@@ -33,7 +44,6 @@ class PointIndex(Enum):
     ADVANCE_ACTIVE = 4
     CURRENT_TEMP = 5
     TARGET_TEMP = 6
-    MODE = 7
     BOOST_HOURS = 8
     BOOST_TIME = 9
     BOILER_STATE = 10
@@ -47,7 +57,7 @@ class PointIndex(Enum):
 # """
 # Named tuple to hold a command to write data to a zone
 # """
-ZoneCommand = collections.namedtuple('ZoneCommand', ['name', 'value'])
+ZoneCommand = collections.namedtuple('ZoneCommand', ['name', 'value', 'index'])
 
 
 def zone_command_to_ints(command):
@@ -75,7 +85,11 @@ def zone_command_to_ints(command):
         )
 
     command_type = writable_command_types[command.name]
-    command_index = PointIndex[command.name].value
+
+    if command.index is not None:
+        command_index = command.index
+    else:
+        command_index = PointIndex[command.name].value
 
     # command header: [0, index, type_id]
     int_array = [0, command_index, type_data[command_type]['id']]
@@ -143,6 +157,8 @@ def zone_is_scheduled_on(zone):
         Convert a schedule start/end time (an integer) to a Python time
         For example, x = 173 is converted to 17:30
         """
+        if stime is None:
+            return None
         return datetime.time(int(str(stime)[:-1]), 10*int(str(stime)[-1:]))
 
     tstamp = time.gmtime(zone['timestamp']/1000)
@@ -151,17 +167,22 @@ def zone_is_scheduled_on(zone):
     if ts_wday == 7:
         ts_wday = 0
 
-    for day in zone['deviceDays']:
-        if day['dayType'] == ts_wday:
+    for day in zone["deviceDays"]:
+        if day["dayType"] == ts_wday:
             if mode == ZoneMode.AUTO:
-                for period in ['p1', 'p2', 'p3']:
-                    start_time = scheduletime_to_time(day[period]['startTime'])
-                    end_time = scheduletime_to_time(day[period]['endTime'])
+                for period in ["p1", "p2", "p3"]:
+                    #TODO -> DynamicPeriods p1, p2 ... pN
+                    start_time = scheduletime_to_time(day[period]["startTime"])
+                    end_time = scheduletime_to_time(day[period]["endTime"])
+                    if start_time is None or end_time is None:
+                        return False
                     if start_time <= ts_time <= end_time:
                         return True
             elif mode == ZoneMode.ALL_DAY:
-                start_time = scheduletime_to_time(day['p1']['startTime'])
-                end_time = scheduletime_to_time(day['p3']['endTime'])
+                start_time = scheduletime_to_time(day["p1"]["startTime"])
+                end_time = scheduletime_to_time(day["p3"]["endTime"])
+                if start_time is None or end_time is None:
+                    return False
                 if start_time <= ts_time <= end_time:
                     return True
 
@@ -231,7 +252,9 @@ def zone_pointdata_value(zone, index):
     from the PointIndex enum: 'ADVANCE_ACTIVE', 'CURRENT_TEMP', etc
     """
     # pylint: disable=unsubscriptable-object
-    if hasattr(PointIndex, index):
+    if index == 'MODE':
+        index = GetModePointIndexByDeviceType(zone['deviceType'])
+    else:
         index = PointIndex[index].value
 
     for datum in zone['pointDataList']:
@@ -244,9 +267,51 @@ def zone_pointdata_value(zone, index):
 def zone_mode(zone):
     """
     Get mode for this zone
-    """
-    return ZoneMode(zone_pointdata_value(zone, 'MODE'))
+    deviceTypes 2 | 4:
+    AUTO = 0
+    ALL_DAY = 1
+    ON = 2
+    OFF = 3
 
+    eviceTypes 514 | 773:
+    AUTO = 0
+    ALL_DAY = 9
+    ON = 10
+    OFF = 4
+    """
+
+    modeValue = zone_pointdata_value(zone, 'MODE')
+    match modeValue:
+        case 0:
+            return ZoneMode.AUTO
+        case 1 | 9:
+            return ZoneMode.ALL_DAY
+        case 2 | 10:
+            return ZoneMode.ON
+        case 3 | 4:
+            return ZoneMode.OFF
+
+def get_zone_mode_value(zone, mode) -> int:
+    if mode == ZoneMode.AUTO:
+        return 0
+
+    match zone["deviceType"]:
+        case 2 | 4:
+            match mode:
+                case ZoneMode.ALL_DAY:
+                    return 1
+                case ZoneMode.ON:
+                    return 2
+                case ZoneMode.OFF:
+                    return 3
+        case 514 | 773:
+            match mode:
+                case ZoneMode.ALL_DAY:
+                    return 9
+                case ZoneMode.ON:
+                    return 10
+                case ZoneMode.OFF:
+                    return 4
 
 class EphMessenger:
     """
@@ -568,9 +633,9 @@ class EphEmber:
             cmds.append(ZoneCommand('BOOST_TIME', timestamp))
         return self.messenger.send_zone_commands(zone, cmds)
 
-    def _set_zone_mode(self, zone, mode_num):
+    def _set_zone_mode(self, zone, mode_num, index):
         return self.messenger.send_zone_commands(
-            zone, ZoneCommand('MODE', mode_num)
+            zone, ZoneCommand('MODE', mode_num, index)
         )
 
     # Public interface
@@ -641,31 +706,33 @@ class EphEmber:
         """
         if not self._homes:
             self._homes = self.list_homes()
-        homes = []
-
-        for gateway in self._homes:
-            gateway_id = gateway["gatewayid"]
+        else:
+            return self._homes
+        
+        for home in self._homes:
+            home["zones"] = []
+            gateway_id = home["gatewayid"]
 
             response = self._http(
                 "homesVT/zoneProgram", send_token=True, data={"gateWayId": gateway_id}
             )
 
-            home = response.json()
+            homezones = response.json()
 
-            status = home.get("status", 1)
+            status = homezones.get("status", 1)
             if status != 0:
                 raise RuntimeError("Error getting zones from home: {}".format(status))
 
-            if "data" not in home:
+            if "data" not in homezones:
                 raise RuntimeError("Error getting zones from home: no data found")
-            if "timestamp" not in home:
+            if "timestamp" not in homezones:
                 raise RuntimeError("Error getting zones from home: no timestamp found")
 
-            for zone in home["data"]:
-                zone["timestamp"] = home["timestamp"]
-            homes.append(home)
+            for zone in homezones["data"]:
+                zone["timestamp"] = homezones["timestamp"]
+                home["zones"].append(zone)
 
-        return homes
+        return self._homes
 
     def get_zones(self):
         """
@@ -687,15 +754,16 @@ class EphEmber:
 
         return zone_names
 
-    def get_zone(self, name):
+    def get_zone(self, zoneid):
         """
         Get the information about a particular zone
         """
-        for zone in self.get_zones():
-            if name == zone['name']:
-                return zone
+        for home in self.get_zones():
+            for zone in home['zones']:
+                if zoneid == zone['zoneid']:
+                    return zone
 
-        raise RuntimeError("Unknown zone: %s" % name)
+        raise RuntimeError("Unknown zone: %s" % zoneid)
 
     def is_zone_active(self, name):
         """
@@ -811,18 +879,20 @@ class EphEmber:
         """
         return self.activate_zone_boost(zone, num_hours=0, timestamp=None)
 
-    def set_zone_mode(self, name, mode):
+    def set_zone_mode(self, zoneid, mode):
         """
         Set the mode by using the name of the zone
         Supported zones are available in the enum ZoneMode
         """
-        if isinstance(mode, int):
-            mode = ZoneMode(mode)
 
         assert isinstance(mode, ZoneMode)
 
+        zone = self.get_zone(zoneid)
+        modevalue = get_zone_mode_value(zone, mode)
+        modeindex = GetModePointIndexByDeviceType(zone['deviceType'])
+
         return self._set_zone_mode(
-            self.get_zone(name), mode.value
+            self.get_zone(zoneid), modevalue, modeindex
         )
 
     def get_zone_mode(self, name):
