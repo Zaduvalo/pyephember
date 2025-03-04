@@ -9,41 +9,76 @@ import json
 import time
 import collections
 
-from enum import StrEnum, Enum
+from enum import Enum
 
 import requests
 import paho.mqtt.client as mqtt
 
-class ZoneMode(StrEnum):
+
+class ZoneMode(Enum):
     """
     Modes that a zone can be set too
     """
-    # pylint: disable=invalid-name
-    AUTO = 'auto'
-    ALL_DAY = 'all day'
-    ON = 'manual'
-    OFF = 'off'
 
-def GetModePointIndexByDeviceType(deviceTypeId):
-    match deviceTypeId:
-        case 2 | 4:
-            return 7
-        case 514 | 773:
-            return 11
+    # pylint: disable=invalid-name
+    AUTO = 0
+    ALL_DAY = 1
+    ON = 2
+    OFF = 3
+
 
 class PointTest(Enum):
     ADVANCE_ACTIVE = 4
     CURRENT_TEMP = 5
     TARGET_TEMP = 6
-    MODE = GetModePointIndexByDeviceType
+
+
+def GetPointIndex(zone, pointIndex) -> int:
+    assert isinstance(pointIndex, PointIndex)
+    match pointIndex:
+        case PointIndex.ADVANCE_ACTIVE:
+            return 4
+        case PointIndex.CURRENT_TEMP:
+            return 5
+        case PointIndex.TARGET_TEMP:
+            return 6
+        case PointIndex.MODE:
+            match zone['deviceType']:
+                case 514 | 773:
+                    return 11
+                case 2 | 4:
+                    return 7
+                case _:
+                    return 7
+        case PointIndex.BOOST_HOURS:
+            return 8
+        case PointIndex.BOOST_TIME:
+            return 9
+        case PointIndex.BOILER_STATE:
+            return 10
+        case PointIndex.BOOST_TEMP:
+            return 14
+        case PointIndex.CTR_15_ABAB:
+            return 15
+        case PointIndex.XXX_16_0000:
+            return 16
+        case PointIndex.CTR_17_ABAB:
+            return 17
+        case PointIndex.CTR_18_0AB7:
+            return 18
+        case _:
+            RuntimeError('Unknown PointIndex:' + pointIndex)
+
 
 class PointIndex(Enum):
     """
     Point indices for pointData returned by API
     """
+
     ADVANCE_ACTIVE = 4
     CURRENT_TEMP = 5
     TARGET_TEMP = 6
+    MODE = 7
     BOOST_HOURS = 8
     BOOST_TIME = 9
     BOILER_STATE = 10
@@ -60,7 +95,7 @@ class PointIndex(Enum):
 ZoneCommand = collections.namedtuple('ZoneCommand', ['name', 'value', 'index'])
 
 
-def zone_command_to_ints(command):
+def zone_command_to_ints(zone, command):
     """
     Convert a ZoneCommand to an array of integers to send
     """
@@ -89,7 +124,7 @@ def zone_command_to_ints(command):
     if command.index is not None:
         command_index = command.index
     else:
-        command_index = PointIndex[command.name].value
+        command_index = GetPointIndex(zone, PointIndex[command.name])
 
     # command header: [0, index, type_id]
     int_array = [0, command_index, type_data[command_type]['id']]
@@ -252,10 +287,7 @@ def zone_pointdata_value(zone, index):
     from the PointIndex enum: 'ADVANCE_ACTIVE', 'CURRENT_TEMP', etc
     """
     # pylint: disable=unsubscriptable-object
-    if index == 'MODE':
-        index = GetModePointIndexByDeviceType(zone['deviceType'])
-    else:
-        index = PointIndex[index].value
+    index = GetPointIndex(zone, PointIndex[index])
 
     for datum in zone['pointDataList']:
         if datum['pointIndex'] == index:
@@ -295,15 +327,7 @@ def get_zone_mode_value(zone, mode) -> int:
     if mode == ZoneMode.AUTO:
         return 0
 
-    match zone["deviceType"]:
-        case 2 | 4:
-            match mode:
-                case ZoneMode.ALL_DAY:
-                    return 1
-                case ZoneMode.ON:
-                    return 2
-                case ZoneMode.OFF:
-                    return 3
+    match zone['deviceType']:
         case 514 | 773:
             match mode:
                 case ZoneMode.ALL_DAY:
@@ -312,6 +336,23 @@ def get_zone_mode_value(zone, mode) -> int:
                     return 10
                 case ZoneMode.OFF:
                     return 4
+        case 2 | 4:
+            match mode:
+                case ZoneMode.ALL_DAY:
+                    return 1
+                case ZoneMode.ON:
+                    return 2
+                case ZoneMode.OFF:
+                    return 3
+        case _:
+            match mode:
+                case ZoneMode.ALL_DAY:
+                    return 1
+                case ZoneMode.ON:
+                    return 2
+                case ZoneMode.OFF:
+                    return 3
+
 
 class EphMessenger:
     """
@@ -430,7 +471,6 @@ class EphMessenger:
         )
 
     def __init__(self, parent):
-
         self.api_url = 'eu-base-mqtt.topband-cloud.com'
         self.api_port = 18883
 
@@ -889,7 +929,7 @@ class EphEmber:
 
         zone = self.get_zone(zoneid)
         modevalue = get_zone_mode_value(zone, mode)
-        modeindex = GetModePointIndexByDeviceType(zone['deviceType'])
+        modeindex = GetPointIndex(zone, PointIndex.MODE)
 
         return self._set_zone_mode(
             self.get_zone(zoneid), modevalue, modeindex
