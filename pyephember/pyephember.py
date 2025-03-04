@@ -83,7 +83,7 @@ def zone_command_to_ints(command):
             "Cannot write to read-only value "
             "{}".format(command.name)
         )
-
+    
     command_type = writable_command_types[command.name]
 
     if command.index is not None:
@@ -700,11 +700,11 @@ class EphEmber:
         return home_details["data"]
     
      # ["homes"]
-    def get_homes(self):
+    def get_homes(self, refresh=False):
         """
         Get the data about a home (API call: homesVT/zoneProgram).
         """
-        if not self._homes:
+        if not self._homes or refresh:
             self._homes = self.list_homes()
         else:
             return self._homes
@@ -734,11 +734,11 @@ class EphEmber:
 
         return self._homes
 
-    def get_zones(self):
+    def get_zones(self, refresh=False):
         """
         Get all zones
         """
-        home_data = self.get_homes()
+        home_data = self.get_homes(refresh)
         if not home_data:
             return []
 
