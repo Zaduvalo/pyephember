@@ -27,12 +27,6 @@ class ZoneMode(Enum):
     OFF = 3
 
 
-class PointTest(Enum):
-    ADVANCE_ACTIVE = 4
-    CURRENT_TEMP = 5
-    TARGET_TEMP = 6
-
-
 def GetPointIndex(zone, pointIndex) -> int:
     assert isinstance(pointIndex, PointIndex)
     match pointIndex:
@@ -41,7 +35,11 @@ def GetPointIndex(zone, pointIndex) -> int:
         case PointIndex.CURRENT_TEMP:
             return 5
         case PointIndex.TARGET_TEMP:
-            return 6
+            match zone["deviceType"]:
+                case 773:
+                    return 12
+                case _:
+                    return 6
         case PointIndex.MODE:
             match zone['deviceType']:
                 case 514 | 773:
@@ -364,8 +362,8 @@ class EphMessenger:
         Send a base64-encoded MQTT command to a zone
         Returns true if the command was published within the timeout
         """
-        product_id = self.parent.get_home_details()['homes']['productId']
-        uid = self.parent.get_home_details()['homes']['uid']
+        product_id = zone["productId"]
+        uid = zone["uid"]
 
         msg = json.dumps(
             {
@@ -461,10 +459,7 @@ class EphMessenger:
         if isinstance(commands, ZoneCommand):
             commands = [commands]
 
-        ints_cmd = [
-            x for cmd in commands
-            for x in zone_command_to_ints(cmd)
-        ]
+        ints_cmd = [x for cmd in commands for x in zone_command_to_ints(zone, cmd)]
 
         return self._zone_command_b64(
             zone, ints_to_b64_cmd(ints_cmd), stop_mqtt, timeout
@@ -632,7 +627,7 @@ class EphEmber:
     def _set_zone_target_temperature(self, zone, target_temperature):
         return self.messenger.send_zone_commands(
             zone,
-            ZoneCommand('TARGET_TEMP', target_temperature)
+            ZoneCommand('TARGET_TEMP', target_temperature, GetPointIndex(zone, PointIndex.TARGET_TEMP))
         )
 
     def _set_zone_boost_temperature(self, zone, target_temperature):
