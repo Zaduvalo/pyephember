@@ -162,7 +162,7 @@ def zone_advance_active(zone):
     """
     Check if zone has advance active
     """
-    return zone_pointdata_value(zone, 'ADVANCE_ACTIVE') != 0
+    return zone_pointdata_value(zone, PointIndex.ADVANCE_ACTIVE) != 0
 
 
 def boiler_state(zone):
@@ -742,7 +742,10 @@ class EphEmber:
         Get the data about a home (API call: homesVT/zoneProgram).
         """
 
-        if self.lastHomesUpdateTimestamp is not None and datetime.now() > self.NextHomeUpdateDaytime:
+        if (
+            self.NextHomeUpdateDaytime is None
+            or datetime.datetime.now() > self.NextHomeUpdateDaytime
+        ):
             self._homes = self.list_homes()
         else:
             return self._homes
@@ -770,7 +773,7 @@ class EphEmber:
                 zone["timestamp"] = homezones["timestamp"]
                 home["zones"].append(zone)
 
-        self.NextHomeUpdateDaytime = datetime.now() + datetime.timedelta(seconds=10)
+        self.NextHomeUpdateDaytime = datetime.datetime.now() + datetime.timedelta(seconds=10)
         return self._homes
 
     def get_zones(self):
@@ -965,6 +968,8 @@ class EphEmber:
         self._homes = None
 
         self._home_details = None
+
+        self.NextHomeUpdateDaytime = None
 
         self._refresh_token_validity_seconds = 1800
 
