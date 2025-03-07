@@ -171,7 +171,7 @@ def boiler_state(zone):
     Probable interpretation:
     0 => FIXME, 1 => flame off, 2 => flame on
     """
-    return zone_pointdata_value(zone, 'BOILER_STATE')
+    return zone_pointdata_value(zone, PointIndex.BOILER_STATE)
 
 
 def zone_is_scheduled_on(zone):
@@ -203,21 +203,23 @@ def zone_is_scheduled_on(zone):
     for day in zone["deviceDays"]:
         if day["dayType"] == ts_wday:
             if mode == ZoneMode.AUTO:
-                for period in ["p1", "p2", "p3"]:
-                    #TODO -> DynamicPeriods p1, p2 ... pN
-                    start_time = scheduletime_to_time(day[period]["startTime"])
-                    end_time = scheduletime_to_time(day[period]["endTime"])
-                    if start_time is None or end_time is None:
-                        return False
-                    if start_time <= ts_time <= end_time:
-                        return True
+                for period in ["p1", "p2", "p3", "p4", "p5", "p6"]:
+                    if period in day and day[period] is not None:
+                        start_time = scheduletime_to_time(day[period]["startTime"])
+                        end_time = scheduletime_to_time(day[period]["endTime"])
+                        if start_time is None or end_time is None:
+                            return False
+                        if start_time <= ts_time <= end_time:
+                            return True
             elif mode == ZoneMode.ALL_DAY:
-                start_time = scheduletime_to_time(day["p1"]["startTime"])
-                end_time = scheduletime_to_time(day["p3"]["endTime"])
-                if start_time is None or end_time is None:
-                    return False
-                if start_time <= ts_time <= end_time:
-                    return True
+                first_start_time = scheduletime_to_time(day["p1"]["startTime"])
+                for period in ["p6", "p5", "p4", "p3", "p2"]:
+                    if period in day and day[period] is not None:
+                        last_end_time = scheduletime_to_time(day[period]["endTime"])
+                        if first_start_time is None or end_time is None:
+                            return False
+                        if first_start_time <= ts_time <= last_end_time:
+                            return True
 
     return False
 
@@ -240,52 +242,52 @@ def zone_boost_hours(zone):
     """
     Return zone boost hours
     """
-    return zone_pointdata_value(zone, 'BOOST_HOURS')
+    return zone_pointdata_value(zone, PointIndex.BOOST_HOURS)
 
 
 def zone_boost_timestamp(zone):
     """
     Return zone boost hours
     """
-    return zone_pointdata_value(zone, 'BOOST_TIME')
+    return zone_pointdata_value(zone, PointIndex.BOOST_TIME)
 
 
 def zone_temperature(zone, label):
     """
     Return temperature (float) from the PointIndex value for label (str)
     """
-    return zone_pointdata_value(zone, label)/10
+    return zone_pointdata_value(zone, PointIndex(label))/10
 
 
 def zone_target_temperature(zone):
     """
     Get target temperature for this zone
     """
-    return zone_temperature(zone, 'TARGET_TEMP')
+    return zone_temperature(zone, PointIndex.TARGET_TEMP)
 
 
 def zone_boost_temperature(zone):
     """
     Get target temperature for this zone
     """
-    return zone_temperature(zone, 'BOOST_TEMP')
+    return zone_temperature(zone, PointIndex.BOOST_TEMP)
 
 
 def zone_current_temperature(zone):
     """
     Get current temperature for this zone
     """
-    return zone_temperature(zone, 'CURRENT_TEMP')
+    return zone_temperature(zone, PointIndex.CURRENT_TEMP)
 
 
-def zone_pointdata_value(zone, index):
+def zone_pointdata_value(zone, pointIndex):
     """
     Get value of given index for this zone, as an integer
     index can be either an integer index, or a string label
     from the PointIndex enum: 'ADVANCE_ACTIVE', 'CURRENT_TEMP', etc
     """
     # pylint: disable=unsubscriptable-object
-    index = GetPointIndex(zone, PointIndex[index])
+    index = GetPointIndex(zone, pointIndex)
 
     for datum in zone['pointDataList']:
         if datum['pointIndex'] == index:
@@ -310,7 +312,7 @@ def zone_mode(zone):
     OFF = 4
     """
 
-    modeValue = zone_pointdata_value(zone, 'MODE')
+    modeValue = zone_pointdata_value(zone, PointIndex.MODE)
     match modeValue:
         case 0:
             return ZoneMode.AUTO
@@ -735,11 +737,12 @@ class EphEmber:
         return home_details["data"]
     
      # ["homes"]
-    def get_homes(self, refresh=False):
+    def get_homes(self):
         """
         Get the data about a home (API call: homesVT/zoneProgram).
         """
-        if not self._homes or refresh:
+
+        if self.lastHomesUpdateTimestamp is not None and datetime.now() > self.NextHomeUpdateDaytime:
             self._homes = self.list_homes()
         else:
             return self._homes
@@ -767,13 +770,14 @@ class EphEmber:
                 zone["timestamp"] = homezones["timestamp"]
                 home["zones"].append(zone)
 
+        self.NextHomeUpdateDaytime = datetime.now() + datetime.timedelta(seconds=10)
         return self._homes
 
-    def get_zones(self, refresh=False):
+    def get_zones(self):
         """
         Get all zones
         """
-        home_data = self.get_homes(refresh)
+        home_data = self.get_homes()
         if not home_data:
             return []
 
