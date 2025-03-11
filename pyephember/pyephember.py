@@ -226,9 +226,6 @@ def zone_is_scheduled_on(zone):
     if ts_wday == 7:
         ts_wday = 0
 
-    if zone["name"] == "Горячая вода":
-        print(zone["name"])
-
     todaysDay = getDay(zone, ts_wday)
 
     # Previous day
