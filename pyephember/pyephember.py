@@ -10,6 +10,7 @@ import time
 import collections
 
 from enum import Enum
+from typing import OrderedDict
 
 import requests
 import paho.mqtt.client as mqtt
@@ -175,6 +176,89 @@ def boiler_state(zone):
     """
     return zone_pointdata_value(zone, PointIndex.BOILER_STATE)
 
+def lastKey(dict):
+    return list(dict.keys())[-1]
+
+
+def firstKey(dict):
+    return list(dict.keys())[0]
+
+
+def try_parse_int(value):
+    try:
+        return int(value), True
+    except ValueError:
+        return None, False
+
+def scheduletime_to_time(stime):
+    """
+    Convert a schedule start/end time (an integer) to a Python time
+    For example, x = 173 is converted to 17:30
+    """
+    if stime is None:
+        return None
+    return datetime.time(int(str(stime)[:-1]), 10 * int(str(stime)[-1:]))
+
+def getZoneTime(zone):
+    tstamp = time.gmtime(zone["timestamp"] / 1000)
+    ts_time = datetime.time(tstamp.tm_hour, tstamp.tm_min)
+    ts_wday = tstamp.tm_wday + 1
+    if ts_wday == 7:
+        ts_wday = 0
+    return [ts_time, ts_wday]
+
+
+def zone_get_running_day(zone):
+    todaysDay = zone["days"][getZoneTime(zone)[1]]
+    return todaysDay
+
+def zone_get_running_program(zone):
+    mode = zone_mode(zone)
+    ts_time = getZoneTime(zone)[0]
+
+    todaysDay = zone_get_running_day(zone)
+    if todaysDay is None:
+        return None
+
+    if mode == ZoneMode.AUTO:
+        for key in todaysDay["programs"]:
+            program = todaysDay["programs"][key]
+            start_time = scheduletime_to_time(program["startTime"])
+            end_time = scheduletime_to_time(program["endTime"])
+            p_time = scheduletime_to_time(program["time"])
+            if (
+                start_time is not None
+                and end_time is not None
+                and start_time <= ts_time <= end_time
+            ):
+                return program
+            elif p_time is not None and p_time >= ts_time:
+                # some devices using different programm logic
+                # P1 contains only activation time and target temp, need to find currently running program by searching previous programm.
+                # Ex: Today is Day 2 9:00am, P1 in that day starts at 10am, current programm is last P from Day 1
+                runningProgram = program["Prev"]
+                return [program, runningProgram]
+        # program not found in that day
+        # could be next day first program or prev day last program
+        firstProg = todaysDay["programs"][firstKey(todaysDay["programs"])]
+        firstProgTime = scheduletime_to_time(firstProg["time"])
+        lastProg = todaysDay["programs"][lastKey(todaysDay["programs"])]
+        lastProgTime = scheduletime_to_time(lastProg["time"])
+        if firstProgTime is None:
+            return None
+        if firstProgTime >= ts_time:
+            p1 = firstProg["Prev"]["programs"][lastKey(firstProg["Prev"]["programs"])]
+            return [firstProg, p1]
+        elif lastProgTime < ts_time:
+            # next running on next day
+            return [lastProg, lastProg["Next"]]
+
+    elif mode == ZoneMode.ALL_DAY:
+        startProgram = todaysDay["programs"][firstKey(todaysDay["programs"])]
+        endProgram = todaysDay["programs"][lastKey(todaysDay["programs"])]
+        return [startProgram, endProgram]
+
+    return None
 
 def zone_is_scheduled_on(zone):
     """
@@ -187,87 +271,44 @@ def zone_is_scheduled_on(zone):
     if mode == ZoneMode.ON:
         return True
 
-    def getDay(zone, ts_wday):
-        for day in zone["deviceDays"]:
-            if day["dayType"] == ts_wday:
-                programs = []
-                lastProgramm = None
-                keys = day.keys()
-                for key in keys:
-                    if key.startswith("p") and try_parse_int(key[1:])[1]:
-                        programm = day[key]
-                        if programm is not None:
-                            if lastProgramm is not None:
-                                programm["Prev"] = lastProgramm
-                            programm["Count"] = int(key[1:])
-                            lastProgramm = programm
-                            programs.append(programm)
-                day["Programs"] = programs
-                return day
-
-    def try_parse_int(value):
-        try:
-            return int(value), True
-        except ValueError:
-            return None, False
-
-    def scheduletime_to_time(stime):
-        """
-        Convert a schedule start/end time (an integer) to a Python time
-        For example, x = 173 is converted to 17:30
-        """
-        if stime is None:
-            return None
-        return datetime.time(int(str(stime)[:-1]), 10 * int(str(stime)[-1:]))
-
-    tstamp = time.gmtime(zone["timestamp"] / 1000)
-    ts_time = datetime.time(tstamp.tm_hour, tstamp.tm_min)
-    ts_wday = tstamp.tm_wday + 1
-    if ts_wday == 7:
-        ts_wday = 0
-
-    todaysDay = getDay(zone, ts_wday)
-
-    # Previous day
-    ts_wday = ts_wday - 1
-    if ts_wday < 0:
-        ts_wday = 6
-
-    previousDay = getDay(zone, ts_wday)
-
-    # last program in prev day
-    todaysDay["Programs"][0]["Prev"] = previousDay["Programs"][-1]
+    ts_time = getZoneTime(zone)[0]
 
     if mode == ZoneMode.AUTO:
-        for program in todaysDay["Programs"]:
-            start_time = scheduletime_to_time(program["startTime"])
-            end_time = scheduletime_to_time(program["endTime"])
-            ptime = scheduletime_to_time(program["time"])
+        runningPrograms = zone_get_running_program(zone)
+        if runningPrograms is None:
+            return False
+        elif type(runningPrograms) is list:
+            start_time = scheduletime_to_time(runningPrograms[0]["time"])
+            end_time = scheduletime_to_time(runningPrograms[1]["time"])
+
+            # if start_time >= ts_time >= end_time:
+            # some devices using different programm logic
+            # P1 contains only activation time and target temp, need to find currently running program by searching previous programm.
+            # Ex: Today is Day 2 9:00am, P1 in that day starts at 10am, current programm is last P from Day 1
+
+            currentTemp = zone_current_temperature(zone)
+
+            # Current program found, check if current temp ( minus offset 0.3->0.7 deg after temp was reached) < target temp
+            # NB! Some devices like eTrv have settings to adjust turn on/off temperature offcet (not available in Ember app).
+            targetTemp = runningPrograms[0]["temperature"] / 10
+            if currentTemp + 0.3 < targetTemp:
+                return True
+            else:
+                return False
+        else:
+            start_time = scheduletime_to_time(runningPrograms["startTime"])
+            end_time = scheduletime_to_time(runningPrograms["endTime"])
             if (
                 start_time is not None
                 and end_time is not None
                 and start_time <= ts_time <= end_time
             ):
                 return True
-            elif ptime is not None and ptime >= ts_time:
-                # some devices using different programm logic
-                # P1 contains only activation time and target temp, need to find currently running program by searching previous programm.
-                # Ex: Today is Day 2 9:00am, P1 in that day starts at 10am, current programm is last P from Day 1
-
-                runningProgram = program["Prev"]
-                currentTemp = zone_current_temperature(zone)
-
-                # Current program found, check if current temp ( minus offset 0.3->0.7 deg after temp was reached) < target temp
-                # NB! Some devices like eTrv have settings to adjust turn on/off temperature offcet (not available in Ember app).
-                targetTemp = runningProgram["temperature"] / 10
-                if currentTemp + 0.3 < targetTemp:
-                    return True
-                else:
-                    return False
 
     elif mode == ZoneMode.ALL_DAY:
-        first_start_time = scheduletime_to_time(todaysDay["p1"]["startTime"])
-        last_end_time = scheduletime_to_time(todaysDay["Programs"][-1]["endTime"])
+        runningPrograms = zone_get_running_program(zone)
+        first_start_time = scheduletime_to_time(runningPrograms[0]["startTime"])
+        last_end_time = scheduletime_to_time(runningPrograms[1]["endTime"])
         if first_start_time is None or last_end_time is None:
             return False
         if first_start_time <= ts_time <= last_end_time:
@@ -308,15 +349,24 @@ def zone_temperature(zone, label):
     """
     Return temperature (float) from the PointIndex value for label (str)
     """
-    return zone_pointdata_value(zone, PointIndex(label))/10
-
+    if zone["deviceType"] == 773:
+        # in auto mode need to find program target temp.
+        if zone_mode(zone) == ZoneMode.AUTO and label == PointIndex.TARGET_TEMP:
+            programs = zone_get_running_program(zone)
+            if programs is not None:
+                return programs[1]["temperature"] / 10
+            else:
+                return None
+        else:
+            return zone_pointdata_value(zone, PointIndex(label)) / 10
+    else:
+        return zone_pointdata_value(zone, PointIndex(label)) / 10
 
 def zone_target_temperature(zone):
     """
     Get target temperature for this zone
     """
     return zone_temperature(zone, PointIndex.TARGET_TEMP)
-
 
 def zone_boost_temperature(zone):
     """
@@ -787,8 +837,14 @@ class EphEmber:
         self._home_details = home_details['data']
 
         return home_details["data"]
+
+    def lastKey(dict):
+            return list(dict.keys())[-1]
+
+    def firstKey(dict):
+        return list(dict.keys())[0]
     
-     # ["homes"]
+    # ["homes"]
     def get_homes(self):
         """
         Get the data about a home (API call: homesVT/zoneProgram).
@@ -801,7 +857,7 @@ class EphEmber:
             self._homes = self.list_homes()
         else:
             return self._homes
-        
+
         for home in self._homes:
             home["zones"] = []
             gateway_id = home["gatewayid"]
@@ -822,10 +878,59 @@ class EphEmber:
                 raise RuntimeError("Error getting zones from home: no timestamp found")
 
             for zone in homezones["data"]:
+                # build programs
+                zone["days"] = {}
+                prevProgramm = None
+                for day in sorted(
+                    zone["deviceDays"], key=lambda x: x["dayType"], reverse=False
+                ):
+                    day["programs"] = {}
+                    keys = day.keys()
+                    for key in keys:
+                        if key.startswith("p"):
+                            tryGetId = try_parse_int(key[1:])
+                            if tryGetId[1]:
+                                programm = day[key]
+                                if programm is not None:
+                                    if prevProgramm is not None:
+                                        programm["Prev"] = prevProgramm
+                                    programm["Count"] = tryGetId[0]
+                                    prevProgramm = programm
+                                    day["programs"][tryGetId[0]] = programm
+                    zone["days"][day["dayType"]] = day
+                # reverse loop to connect all Prev programs
+                lastProgramm = None
+                firstProgramm = None
+                for day in OrderedDict(sorted(zone["days"].items(), reverse=True)):
+                    if lastProgramm is not None:
+                        firstProgramm = zone["days"][day]["programs"][
+                            lastKey(zone["days"][day]["programs"])
+                        ]
+                        lastProgramm["Prev"] = firstProgramm
+                    lastProgramm = zone["days"][day]["programs"][
+                        firstKey(zone["days"][day]["programs"])
+                    ]
+
+                lastProgramm["Prev"] = firstProgramm
+
+                firstDayPrograms = zone["days"][firstKey(zone["days"])]["programs"]
+                firstProgram = firstDayPrograms[firstKey(firstDayPrograms)]
+                nextProgram = firstProgram
+                for day in OrderedDict(sorted(zone["days"].items(), reverse=True)):
+                    orderedProgs = OrderedDict(
+                        sorted(zone["days"][day]["programs"].items(), reverse=True)
+                    )
+                    for progNum in orderedProgs:
+                        program = zone["days"][day]["programs"][progNum]
+                        program["Next"] = nextProgram
+                        nextProgram = program
+
                 zone["timestamp"] = homezones["timestamp"]
                 home["zones"].append(zone)
 
-        self.NextHomeUpdateDaytime = datetime.datetime.now() + datetime.timedelta(seconds=10)
+        self.NextHomeUpdateDaytime = datetime.datetime.now() + datetime.timedelta(
+            seconds=10
+        )
         return self._homes
 
     def get_zones(self):
