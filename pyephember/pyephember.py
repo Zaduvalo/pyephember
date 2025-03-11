@@ -152,7 +152,9 @@ def zone_is_active(zone):
     This is a bit of a hack as the new API doesn't have a currently
     active variable
     """
-    if zone_is_scheduled_on(zone):
+    if zone["deviceType"] == 773:
+        return zone_is_scheduled_on(zone)
+    elif zone_is_scheduled_on(zone):
         return True
     # not sure how reliable the next tests are
     return zone_boost_hours(zone) > 0 or zone_advance_active(zone)
@@ -185,6 +187,30 @@ def zone_is_scheduled_on(zone):
     if mode == ZoneMode.ON:
         return True
 
+    def getDay(zone, ts_wday):
+        for day in zone["deviceDays"]:
+            if day["dayType"] == ts_wday:
+                programs = []
+                lastProgramm = None
+                keys = day.keys()
+                for key in keys:
+                    if key.startswith("p") and try_parse_int(key[1:])[1]:
+                        programm = day[key]
+                        if programm is not None:
+                            if lastProgramm is not None:
+                                programm["Prev"] = lastProgramm
+                            programm["Count"] = int(key[1:])
+                            lastProgramm = programm
+                            programs.append(programm)
+                day["Programs"] = programs
+                return day
+
+    def try_parse_int(value):
+        try:
+            return int(value), True
+        except ValueError:
+            return None, False
+
     def scheduletime_to_time(stime):
         """
         Convert a schedule start/end time (an integer) to a Python time
@@ -192,34 +218,63 @@ def zone_is_scheduled_on(zone):
         """
         if stime is None:
             return None
-        return datetime.time(int(str(stime)[:-1]), 10*int(str(stime)[-1:]))
+        return datetime.time(int(str(stime)[:-1]), 10 * int(str(stime)[-1:]))
 
-    tstamp = time.gmtime(zone['timestamp']/1000)
+    tstamp = time.gmtime(zone["timestamp"] / 1000)
     ts_time = datetime.time(tstamp.tm_hour, tstamp.tm_min)
     ts_wday = tstamp.tm_wday + 1
     if ts_wday == 7:
         ts_wday = 0
 
-    for day in zone["deviceDays"]:
-        if day["dayType"] == ts_wday:
-            if mode == ZoneMode.AUTO:
-                for period in ["p1", "p2", "p3", "p4", "p5", "p6"]:
-                    if period in day and day[period] is not None:
-                        start_time = scheduletime_to_time(day[period]["startTime"])
-                        end_time = scheduletime_to_time(day[period]["endTime"])
-                        if start_time is None or end_time is None:
-                            return False
-                        if start_time <= ts_time <= end_time:
-                            return True
-            elif mode == ZoneMode.ALL_DAY:
-                first_start_time = scheduletime_to_time(day["p1"]["startTime"])
-                for period in ["p6", "p5", "p4", "p3", "p2"]:
-                    if period in day and day[period] is not None:
-                        last_end_time = scheduletime_to_time(day[period]["endTime"])
-                        if first_start_time is None or end_time is None:
-                            return False
-                        if first_start_time <= ts_time <= last_end_time:
-                            return True
+    if zone["name"] == "Горячая вода":
+        print(zone["name"])
+
+    todaysDay = getDay(zone, ts_wday)
+
+    # Previous day
+    ts_wday = ts_wday - 1
+    if ts_wday < 0:
+        ts_wday = 6
+
+    previousDay = getDay(zone, ts_wday)
+
+    # last program in prev day
+    todaysDay["Programs"][0]["Prev"] = previousDay["Programs"][-1]
+
+    if mode == ZoneMode.AUTO:
+        for program in todaysDay["Programs"]:
+            start_time = scheduletime_to_time(program["startTime"])
+            end_time = scheduletime_to_time(program["endTime"])
+            ptime = scheduletime_to_time(program["time"])
+            if (
+                start_time is not None
+                and end_time is not None
+                and start_time <= ts_time <= end_time
+            ):
+                return True
+            elif ptime is not None and ptime >= ts_time:
+                # some devices using different programm logic
+                # P1 contains only activation time and target temp, need to find currently running program by searching previous programm.
+                # Ex: Today is Day 2 9:00am, P1 in that day starts at 10am, current programm is last P from Day 1
+
+                runningProgram = program["Prev"]
+                currentTemp = zone_current_temperature(zone)
+
+                # Current program found, check if current temp ( minus offset 0.3->0.7 deg after temp was reached) < target temp
+                # NB! Some devices like eTrv have settings to adjust turn on/off temperature offcet (not available in Ember app).
+                targetTemp = runningProgram["temperature"] / 10
+                if currentTemp + 0.3 < targetTemp:
+                    return True
+                else:
+                    return False
+
+    elif mode == ZoneMode.ALL_DAY:
+        first_start_time = scheduletime_to_time(todaysDay["p1"]["startTime"])
+        last_end_time = scheduletime_to_time(todaysDay["Programs"][-1]["endTime"])
+        if first_start_time is None or last_end_time is None:
+            return False
+        if first_start_time <= ts_time <= last_end_time:
+            return True
 
     return False
 
