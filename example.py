@@ -32,22 +32,18 @@ print("----------------------------------")
 for name in t.get_zone_names():
     print(name)
 
-# Get a zone by name
-print(json.dumps(t.get_zone(args.zone_name), indent=4, sort_keys=True))
-print("----------------------------------")
-
 # Get information about a zone
 print("{} current temperature is {}".format(
-    "zone_name", t.get_zone_temperature(args.zone_name)
+    "zone_name", t.get_zone_temperature(args.zone_id)
 ))
 print("{} target temperature is {}".format(
-    "zone_name", t.get_zone_target_temperature(args.zone_name)
+    "zone_name", t.get_zone_target_temperature(args.zone_id)
 ))
 print("{} active : {}".format(
-    "zone_name", t.is_zone_active(args.zone_name)
+    "zone_name", t.is_zone_active(args.zone_id)
 ))
 print("{} mode : {}".format(
-    "zone_name", t.get_zone_mode(args.zone_name).name
+    "zone_name", t.get_zone_mode(args.zone_id).name
 ))
 
 #target = args.target
