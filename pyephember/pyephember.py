@@ -407,19 +407,31 @@ def zone_mode(zone):
     ON = 2
     OFF = 3
 
-    eviceTypes 514 | 773:
+    deviceTypes 773:
+    AUTO = 0
+    ON/Manual = 1
+    OFF = 4
+
+    deviceTypes 514:
     AUTO = 0
     ALL_DAY = 9
-    ON = 10
+    ON/Manual = 10
     OFF = 4
     """
-
+    if zone["name"] == "Коридор 2":
+        print()
+    if zone["deviceType"] == 514:
+        print()
     modeValue = zone_pointdata_value(zone, PointIndex.MODE)
     match modeValue:
         case 0:
             return ZoneMode.AUTO
         case 1 | 9:
-            return ZoneMode.ALL_DAY
+            match zone["deviceType"]:
+                case 773:
+                    return ZoneMode.ON
+                case _:
+                    return ZoneMode.ALL_DAY
         case 2 | 10:
             return ZoneMode.ON
         case 3 | 4:
@@ -430,7 +442,13 @@ def get_zone_mode_value(zone, mode) -> int:
         return 0
 
     match zone['deviceType']:
-        case 514 | 773:
+        case 773:
+            match mode:
+                case ZoneMode.ON:
+                    return 1
+                case ZoneMode.OFF:
+                    return 4
+        case 514:
             match mode:
                 case ZoneMode.ALL_DAY:
                     return 9
@@ -438,14 +456,6 @@ def get_zone_mode_value(zone, mode) -> int:
                     return 10
                 case ZoneMode.OFF:
                     return 4
-        case 2 | 4:
-            match mode:
-                case ZoneMode.ALL_DAY:
-                    return 1
-                case ZoneMode.ON:
-                    return 2
-                case ZoneMode.OFF:
-                    return 3
         case _:
             match mode:
                 case ZoneMode.ALL_DAY:
@@ -839,7 +849,7 @@ class EphEmber:
         return home_details["data"]
 
     def lastKey(dict):
-            return list(dict.keys())[-1]
+        return list(dict.keys())[-1]
 
     def firstKey(dict):
         return list(dict.keys())[0]
