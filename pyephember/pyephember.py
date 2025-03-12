@@ -290,7 +290,7 @@ def zone_is_scheduled_on(zone):
 
             # Current program found, check if current temp ( minus offset 0.3->0.7 deg after temp was reached) < target temp
             # NB! Some devices like eTrv have settings to adjust turn on/off temperature offcet (not available in Ember app).
-            targetTemp = runningPrograms[0]["temperature"] / 10
+            targetTemp = runningPrograms[1]["temperature"] / 10
             if currentTemp + 0.3 < targetTemp:
                 return True
             else:
