@@ -975,97 +975,97 @@ class EphEmber:
 
         raise RuntimeError("Unknown zone: %s" % zoneid)
 
-    def is_zone_active(self, name):
+    def is_zone_active(self, zoneid):
         """
         Check if a zone is active
         """
-        zone = self.get_zone(name)
+        zone = self.get_zone(zoneid)
         return zone_is_active(zone)
 
-    def is_zone_boiler_on(self, name):
+    def is_zone_boiler_on(self, zoneid):
         """
         Check if the named zone's boiler is on and burning fuel (experimental)
         """
-        zone = self.get_zone(name)
+        zone = self.get_zone(zoneid)
         return boiler_state(zone) == 2
 
-    def get_zone_temperature(self, name):
+    def get_zone_temperature(self, zoneid):
         """
         Get the temperature for a zone
         """
-        zone = self.get_zone(name)
+        zone = self.get_zone(zoneid)
         return zone_current_temperature(zone)
 
-    def get_zone_target_temperature(self, name):
+    def get_zone_target_temperature(self, zoneid):
         """
         Get the temperature for a zone
         """
-        zone = self.get_zone(name)
+        zone = self.get_zone(zoneid)
         return zone_target_temperature(zone)
 
-    def get_zone_boost_temperature(self, name):
+    def get_zone_boost_temperature(self, zoneid):
         """
         Get the boost target temperature for a zone
         """
-        zone = self.get_zone(name)
+        zone = self.get_zone(zoneid)
         return zone_boost_temperature(zone)
 
-    def is_boost_active(self, name):
+    def is_boost_active(self, zoneid):
         """
         Check if boost is active for a zone
         """
-        zone = self.get_zone(name)
+        zone = self.get_zone(zoneid)
         return zone_is_boost_active(zone)
 
-    def boost_hours(self, name):
+    def boost_hours(self, zoneid):
         """
         Get the boost duration for a zone, in hours
         """
-        zone = self.get_zone(name)
+        zone = self.get_zone(zoneid)
         return zone_boost_hours(zone)
 
-    def boost_timestamp(self, name):
+    def boost_timestamp(self, zoneid):
         """
         Get the timestamp recorded for the boost
         """
-        zone = self.get_zone(name)
+        zone = self.get_zone(zoneid)
         return datetime.datetime.fromtimestamp(zone_boost_timestamp(zone))
 
-    def is_target_temperature_reached(self, name):
+    def is_target_temperature_reached(self, zoneid):
         """
         Check if a zone temperature has reached the target temperature
         """
-        zone = self.get_zone(name)
+        zone = self.get_zone(zoneid)
         return zone_current_temperature(zone) >= zone_target_temperature(zone)
 
-    def set_zone_target_temperature(self, name, target_temperature):
+    def set_zone_target_temperature(self, zoneid, target_temperature):
         """
         Set the target temperature for a named zone
         """
-        zone = self.get_zone(name)
+        zone = self.get_zone(zoneid)
         return self._set_zone_target_temperature(
             zone, target_temperature
         )
 
-    def set_zone_boost_temperature(self, name, target_temperature):
+    def set_zone_boost_temperature(self, zoneid, target_temperature):
         """
         Set the boost target temperature for a named zone
         """
-        zone = self.get_zone(name)
+        zone = self.get_zone(zoneid)
         return self._set_zone_boost_temperature(
             zone, target_temperature
         )
 
-    def set_zone_advance(self, name, advance_state=True):
+    def set_zone_advance(self, zoneid, advance_state=True):
         """
         Set the advance state for a named zone
         """
-        zone = self.get_zone(name)
+        zone = self.get_zone(zoneid)
         return self._set_zone_advance(
             zone, advance_state
         )
 
-    def activate_zone_boost(self, name, boost_temperature=None,
+    def activate_zone_boost(self, zoneid, boost_temperature=None,
                             num_hours=1, timestamp=0):
         """
         Turn on boost for a named zone
@@ -1079,7 +1079,7 @@ class EphEmber:
 
         """
         return self._set_zone_boost(
-            self.get_zone(name), boost_temperature,
+            self.get_zone(zoneid), boost_temperature,
             num_hours, timestamp=timestamp
         )
 
@@ -1105,11 +1105,11 @@ class EphEmber:
             self.get_zone(zoneid), modevalue, modeindex
         )
 
-    def get_zone_mode(self, name):
+    def get_zone_mode(self, zoneid):
         """
         Get the mode for a zone
         """
-        zone = self.get_zone(name)
+        zone = self.get_zone(zoneid)
         return zone_mode(zone)
 
     def reset_login(self):
