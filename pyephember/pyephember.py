@@ -418,10 +418,7 @@ def zone_mode(zone):
     ON/Manual = 10
     OFF = 4
     """
-    if zone["name"] == "Коридор 2":
-        print()
-    if zone["deviceType"] == 514:
-        print()
+
     modeValue = zone_pointdata_value(zone, PointIndex.MODE)
     match modeValue:
         case 0:
