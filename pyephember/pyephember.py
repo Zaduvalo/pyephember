@@ -401,6 +401,7 @@ def zone_pointdata_value(zone, pointIndex):
 def zone_mode(zone):
     """
     Get mode for this zone
+    Default settings based on next known devices
     deviceTypes 2 | 4:
     AUTO = 0
     ALL_DAY = 1
@@ -410,12 +411,15 @@ def zone_mode(zone):
     deviceTypes 773:
     AUTO = 0
     ON/Manual = 1
+    BOOST = 0 ? Could be another point index
     OFF = 4
 
     deviceTypes 514:
     AUTO = 0
+    ADVANCE = 0 ? Could be another point index
     ALL_DAY = 9
     ON/Manual = 10
+    BOOST = 0 ? Could be another point index
     OFF = 4
     """
 
