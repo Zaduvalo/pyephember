@@ -153,9 +153,7 @@ def zone_is_active(zone):
     This is a bit of a hack as the new API doesn't have a currently
     active variable
     """
-    if zone["deviceType"] == 773:
-        return zone_is_scheduled_on(zone)
-    elif zone_is_scheduled_on(zone):
+    if zone_is_scheduled_on(zone):
         return True
     # not sure how reliable the next tests are
     return zone_boost_hours(zone) > 0 or zone_advance_active(zone)
@@ -335,7 +333,12 @@ def zone_boost_hours(zone):
     """
     Return zone boost hours
     """
-    return zone_pointdata_value(zone, PointIndex.BOOST_HOURS)
+    match zone["deviceType"]:
+        case 514 | 773:
+            # Currently unsupported
+            return 0
+        case _:
+            return zone_pointdata_value(zone, PointIndex.BOOST_HOURS)
 
 
 def zone_boost_timestamp(zone):
