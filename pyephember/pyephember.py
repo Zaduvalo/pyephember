@@ -251,20 +251,14 @@ def zone_get_running_program(zone):
                 # P1 contains only activation time and target temp, need to find currently running program by searching previous programm.
                 # Ex: Today is Day 2 9:00am, P1 in that day starts at 10am, current programm is last P from Day 1
                 runningProgram = program["Prev"]
-                return [program, runningProgram]
+                return [runningProgram, program]
         # program not found in that day
-        # could be next day first program or prev day last program
-        firstProg = todaysDay["programs"][firstKey(todaysDay["programs"])]
-        firstProgTime = scheduletime_to_time(firstProg, "time")
+        # last program active
         lastProg = todaysDay["programs"][lastKey(todaysDay["programs"])]
-        lastProgTime = scheduletime_to_time(lastProg, "time")
-        if firstProgTime is None:
-            return None
-        if firstProgTime >= ts_time:
-            p1 = firstProg["Prev"]["programs"][lastKey(firstProg["Prev"]["programs"])]
-            return [firstProg, p1]
-        elif lastProgTime < ts_time:
-            # next running on next day
+
+        if lastProg.get("time") is None:
+            return lastProg
+        else:
             return [lastProg, lastProg["Next"]]
 
     elif mode == ZoneMode.ALL_DAY:
@@ -292,19 +286,14 @@ def zone_is_scheduled_on(zone):
         if runningPrograms is None:
             return False
         elif type(runningPrograms) is list:
-            start_time = scheduletime_to_time(runningPrograms[0], "time")
-            end_time = scheduletime_to_time(runningPrograms[1],"time")
-
-            # if start_time >= ts_time >= end_time:
             # some devices using different programm logic
             # P1 contains only activation time and target temp, need to find currently running program by searching previous programm.
             # Ex: Today is Day 2 9:00am, P1 in that day starts at 10am, current programm is last P from Day 1
-
             currentTemp = zone_current_temperature(zone)
+            targetTemp = runningPrograms[0]["temperature"] / 10
 
             # Current program found, check if current temp ( minus offset 0.3->0.7 deg after temp was reached) < target temp
             # NB! Some devices like eTrv have settings to adjust turn on/off temperature offcet (not available in Ember app).
-            targetTemp = runningPrograms[1]["temperature"] / 10
             if currentTemp + 0.3 < targetTemp:
                 return True
             else:
@@ -368,7 +357,7 @@ def zone_temperature(zone, label):
         if zone_mode(zone) == ZoneMode.AUTO and label == PointIndex.TARGET_TEMP:
             programs = zone_get_running_program(zone)
             if programs is not None:
-                return programs[1]["temperature"] / 10
+                return programs[0]["temperature"] / 10
             else:
                 return None
         else:
