@@ -168,7 +168,15 @@ def zone_advance_active(zone):
     """
     Check if zone has advance active
     """
-    return zone_pointdata_value(zone, PointIndex.ADVANCE_ACTIVE) != 0
+    match zone["deviceType"]:
+        case 773:
+            # Mode not supported
+            return False
+        case 514:
+            # Need to fix, point index or value is not right
+            return False
+        case _:
+            return zone_pointdata_value(zone, PointIndex.ADVANCE_ACTIVE) != 0
 
 
 def boiler_state(zone):
