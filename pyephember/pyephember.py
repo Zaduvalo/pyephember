@@ -338,12 +338,7 @@ def zone_boost_hours(zone):
     """
     Return zone boost hours
     """
-    match zone["deviceType"]:
-        case 773:
-            # Unsupported
-            return 0
-        case _:
-            return zone_pointdata_value(zone, PointIndex.BOOST_HOURS)
+    return zone_pointdata_value(zone, PointIndex.BOOST_HOURS)
 
 
 def zone_boost_timestamp(zone):
