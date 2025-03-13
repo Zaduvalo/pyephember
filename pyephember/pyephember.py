@@ -50,7 +50,12 @@ def GetPointIndex(zone, pointIndex) -> int:
                 case _:
                     return 7
         case PointIndex.BOOST_HOURS:
-            return 8
+            match zone["deviceType"]:
+                case 514 | 773:
+                    # Returns 0 if boost is OFF and 1 if ON
+                    return 13
+                case _:
+                    return 8
         case PointIndex.BOOST_TIME:
             return 9
         case PointIndex.BOILER_STATE:
@@ -334,8 +339,8 @@ def zone_boost_hours(zone):
     Return zone boost hours
     """
     match zone["deviceType"]:
-        case 514 | 773:
-            # Currently unsupported
+        case 773:
+            # Unsupported
             return 0
         case _:
             return zone_pointdata_value(zone, PointIndex.BOOST_HOURS)
