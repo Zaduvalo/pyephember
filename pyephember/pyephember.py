@@ -201,11 +201,14 @@ def try_parse_int(value):
     except ValueError:
         return None, False
 
-def scheduletime_to_time(stime):
+def scheduletime_to_time(dict, key_name):
     """
     Convert a schedule start/end time (an integer) to a Python time
     For example, x = 173 is converted to 17:30
     """
+    if dict.get(key_name) is None:
+        return None
+    stime = dict[key_name]
     if stime is None:
         return None
     return datetime.time(int(str(stime)[:-1]), 10 * int(str(stime)[-1:]))
@@ -234,9 +237,9 @@ def zone_get_running_program(zone):
     if mode == ZoneMode.AUTO:
         for key in todaysDay["programs"]:
             program = todaysDay["programs"][key]
-            start_time = scheduletime_to_time(program["startTime"])
-            end_time = scheduletime_to_time(program["endTime"])
-            p_time = scheduletime_to_time(program["time"])
+            start_time = scheduletime_to_time(program, "startTime")
+            end_time = scheduletime_to_time(program, "endTime")
+            p_time = scheduletime_to_time(program, "time")
             if (
                 start_time is not None
                 and end_time is not None
@@ -252,9 +255,9 @@ def zone_get_running_program(zone):
         # program not found in that day
         # could be next day first program or prev day last program
         firstProg = todaysDay["programs"][firstKey(todaysDay["programs"])]
-        firstProgTime = scheduletime_to_time(firstProg["time"])
+        firstProgTime = scheduletime_to_time(firstProg, "time")
         lastProg = todaysDay["programs"][lastKey(todaysDay["programs"])]
-        lastProgTime = scheduletime_to_time(lastProg["time"])
+        lastProgTime = scheduletime_to_time(lastProg, "time")
         if firstProgTime is None:
             return None
         if firstProgTime >= ts_time:
@@ -289,8 +292,8 @@ def zone_is_scheduled_on(zone):
         if runningPrograms is None:
             return False
         elif type(runningPrograms) is list:
-            start_time = scheduletime_to_time(runningPrograms[0]["time"])
-            end_time = scheduletime_to_time(runningPrograms[1]["time"])
+            start_time = scheduletime_to_time(runningPrograms[0], "time")
+            end_time = scheduletime_to_time(runningPrograms[1],"time")
 
             # if start_time >= ts_time >= end_time:
             # some devices using different programm logic
@@ -307,8 +310,8 @@ def zone_is_scheduled_on(zone):
             else:
                 return False
         else:
-            start_time = scheduletime_to_time(runningPrograms["startTime"])
-            end_time = scheduletime_to_time(runningPrograms["endTime"])
+            start_time = scheduletime_to_time(runningPrograms, "startTime")
+            end_time = scheduletime_to_time(runningPrograms, "endTime")
             if (
                 start_time is not None
                 and end_time is not None
@@ -318,8 +321,8 @@ def zone_is_scheduled_on(zone):
 
     elif mode == ZoneMode.ALL_DAY:
         runningPrograms = zone_get_running_program(zone)
-        first_start_time = scheduletime_to_time(runningPrograms[0]["startTime"])
-        last_end_time = scheduletime_to_time(runningPrograms[1]["endTime"])
+        first_start_time = scheduletime_to_time(runningPrograms[0], "startTime")
+        last_end_time = scheduletime_to_time(runningPrograms[1], "endTime")
         if first_start_time is None or last_end_time is None:
             return False
         if first_start_time <= ts_time <= last_end_time:
